@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  code               String   @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  majorityVoteNumber Int      @default(1)
+  ownerUserId        Int?
+  Issue              Issue[]
+  motions            Motion[]
+  owner              User?    @relation("OrgOwner", fields: [ownerUserId], references: [id])
+  users              User[]
+}
+
+model User {
+  id                             Int            @id @default(autoincrement())
+  firstName                      String
+  lastName                       String
+  email                          String         @unique
+  password                       String
+  role                           String
+  orgId                          Int
+  createdAt                      DateTime       @default(now())
+  updatedAt                      DateTime       @updatedAt
+  Attachment                     Attachment[]
+  comments                       Comment[]
+  Issue_Issue_assignedToIdToUser Issue[]        @relation("Issue_assignedToIdToUser")
+  Issue_Issue_createdByIdToUser  Issue[]        @relation("Issue_createdByIdToUser")
+  Motion                         Motion[]
+  orgsOwned                      Organization[] @relation("OrgOwner")
+  tasks                          Task[]
+  org                            Organization   @relation(fields: [orgId], references: [id])
+  votes                          Vote[]
+}
+
+model Motion {
+  id          Int          @id @default(autoincrement())
+  motion      String
+  userId      Int
+  summary     String?
+  discussion  String?
+  status      String       @default("pending") // "pending", "passed", "defeated"
+  dateVoted   DateTime?
+  issueId     Int?
+  orgId       Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  attachments Attachment[]
+  comments    Comment[]
+  Issue       Issue?       @relation(fields: [issueId], references: [id])
+  org         Organization @relation(fields: [orgId], references: [id])
+  User        User         @relation(fields: [userId], references: [id])
+  tasks       Task[]
+  votes       Vote[]
+}
+
+model Task {
+  id              Int        @id @default(autoincrement())
+  action          String
+  userId          Int
+  due             DateTime?
+  motionId        Int?
+  issueId         Int?
+  status          TaskStatus @default(UNAPPROVED)
+  completed       Boolean    @default(false)
+  dateCompleted   DateTime?
+  completeComment String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  Issue           Issue?     @relation(fields: [issueId], references: [id])
+  motion          Motion?    @relation(fields: [motionId], references: [id])
+  user            User       @relation(fields: [userId], references: [id])
+}
+
+model Comment {
+  id        Int       @id @default(autoincrement())
+  motionId  Int
+  userId    Int
+  text      String
+  parentId  Int?
+  isDeleted Boolean   @default(false)
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  motion    Motion    @relation(fields: [motionId], references: [id])
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentReplies")
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model Attachment {
+  id        Int      @id @default(autoincrement())
+  motionId  Int
+  userId    Int?
+  desc      String?
+  filename  String
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  motion    Motion   @relation(fields: [motionId], references: [id])
+  User      User?    @relation(fields: [userId], references: [id])
+}
+
+model Vote {
+  id        Int      @id @default(autoincrement())
+  motionId  Int
+  userId    Int
+  voteType  String
+  createdAt DateTime @default(now())
+  motion    Motion   @relation(fields: [motionId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Issue {
+  id                            Int          @id @default(autoincrement())
+  title                         String
+  description                   String?
+  status                        String       @default("OPEN")
+  priority                      String       @default("MEDIUM")
+  orgId                         Int
+  createdById                   Int
+  assignedToId                  Int?
+  createdAt                     DateTime     @default(now())
+  updatedAt                     DateTime
+  User_Issue_assignedToIdToUser User?        @relation("Issue_assignedToIdToUser", fields: [assignedToId], references: [id])
+  User_Issue_createdByIdToUser  User         @relation("Issue_createdByIdToUser", fields: [createdById], references: [id])
+  Organization                  Organization @relation(fields: [orgId], references: [id])
+  Motion                        Motion[]
+  Task                          Task[]
+}
+
+enum TaskStatus {
+  UNAPPROVED
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
