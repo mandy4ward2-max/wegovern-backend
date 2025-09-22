@@ -83,6 +83,7 @@ app.get('/', (req, res) => res.send('API is running'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', authMiddleware, require('./routes/users'));
 app.use('/api/orgs', authMiddleware, require('./routes/orgs'));
+app.use('/api/issues', authMiddleware, require('./routes/issues'));
 app.use('/api/motions', authMiddleware, require('./routes/motions'));
 app.use('/api/tasks', authMiddleware, require('./routes/tasks'));
 app.use('/api/comments', authMiddleware, require('./routes/comments'));
