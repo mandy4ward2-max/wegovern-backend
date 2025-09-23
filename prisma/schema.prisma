@@ -79,11 +79,14 @@ model Task {
   Issue           Issue?     @relation(fields: [issueId], references: [id])
   motion          Motion?    @relation(fields: [motionId], references: [id])
   user            User       @relation(fields: [userId], references: [id])
+  comments        Comment[]
 }
 
 model Comment {
   id        Int       @id @default(autoincrement())
-  motionId  Int
+  motionId  Int?
+  issueId   Int?
+  taskId    Int?
   userId    Int
   text      String
   parentId  Int?
@@ -91,7 +94,9 @@ model Comment {
   editedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  motion    Motion    @relation(fields: [motionId], references: [id])
+  motion    Motion?   @relation(fields: [motionId], references: [id])
+  issue     Issue?    @relation(fields: [issueId], references: [id])
+  task      Task?     @relation(fields: [taskId], references: [id])
   parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies   Comment[] @relation("CommentReplies")
   user      User      @relation(fields: [userId], references: [id])
@@ -136,6 +141,7 @@ model Issue {
   Organization                  Organization @relation(fields: [orgId], references: [id])
   Motion                        Motion[]
   Task                          Task[]
+  comments                      Comment[]
 }
 
 enum TaskStatus {

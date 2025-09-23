@@ -25,6 +25,10 @@ exports.getIssues = async (req, res) => {
         Task: {
           select: { id: true }
         },
+        comments: {
+          where: { isDeleted: false },
+          select: { id: true }
+        },
         _count: {
           select: {
             Motion: true,
@@ -35,15 +39,18 @@ exports.getIssues = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Add comment counts (we'll need to add comments relation later)
-    const issuesWithCounts = issues.map(issue => ({
-      ...issue,
-      motionCount: issue._count.Motion,
-      taskCount: issue._count.Task,
-      commentCount: 0, // TODO: Add when comments are linked to issues
-      createdBy: issue.User_Issue_createdByIdToUser,
-      assignedTo: issue.User_Issue_assignedToIdToUser
-    }));
+    // Add comment counts (count only non-deleted comments)
+    const issuesWithCounts = issues.map(issue => {
+      const { comments, ...issueWithoutComments } = issue;
+      return {
+        ...issueWithoutComments,
+        motionCount: issue._count.Motion,
+        taskCount: issue._count.Task,
+        commentCount: comments.length,
+        createdBy: issue.User_Issue_createdByIdToUser,
+        assignedTo: issue.User_Issue_assignedToIdToUser
+      };
+    });
 
     res.json(issuesWithCounts);
   } catch (err) {
