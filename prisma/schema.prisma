@@ -41,6 +41,7 @@ model User {
   tasks                          Task[]
   org                            Organization   @relation(fields: [orgId], references: [id])
   votes                          Vote[]
+  taggedInComments               Comment[]      @relation("CommentTags")
 }
 
 model Motion {
@@ -84,23 +85,24 @@ model Task {
 }
 
 model Comment {
-  id        Int       @id @default(autoincrement())
-  motionId  Int?
-  issueId   Int?
-  taskId    Int?
-  userId    Int
-  text      String
-  parentId  Int?
-  isDeleted Boolean   @default(false)
-  editedAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  motion    Motion?   @relation(fields: [motionId], references: [id])
-  issue     Issue?    @relation(fields: [issueId], references: [id])
-  task      Task?     @relation(fields: [taskId], references: [id])
-  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
-  replies   Comment[] @relation("CommentReplies")
-  user      User      @relation(fields: [userId], references: [id])
+  id          Int       @id @default(autoincrement())
+  motionId    Int?
+  issueId     Int?
+  taskId      Int?
+  userId      Int
+  text        String
+  parentId    Int?
+  isDeleted   Boolean   @default(false)
+  editedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  motion      Motion?   @relation(fields: [motionId], references: [id])
+  issue       Issue?    @relation(fields: [issueId], references: [id])
+  task        Task?     @relation(fields: [taskId], references: [id])
+  parent      Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies     Comment[] @relation("CommentReplies")
+  user        User      @relation(fields: [userId], references: [id])
+  taggedUsers User[]    @relation("CommentTags")
 }
 
 model Attachment {

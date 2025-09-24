@@ -4,8 +4,8 @@ const prisma = new PrismaClient();
 
 exports.createComment = async (req, res) => {
   try {
-    // Only allow scalar fields for comment creation
-    let { motionId, issueId, taskId, userId, text, parentId } = req.body;
+    // Allow scalar fields and taggedUserIds for comment creation
+    let { motionId, issueId, taskId, userId, text, parentId, taggedUserIds } = req.body;
     
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
@@ -32,11 +32,19 @@ exports.createComment = async (req, res) => {
       parentId: parentId || null 
     };
     
+    // If taggedUserIds provided, connect them
+    if (taggedUserIds && Array.isArray(taggedUserIds) && taggedUserIds.length > 0) {
+      data.taggedUsers = {
+        connect: taggedUserIds.map(id => ({ id: parseInt(id, 10) }))
+      };
+    }
+    
     const comment = await prisma.comment.create({ 
       data,
       include: {
         // include email to keep parity with getComments and websocket formatting
-        user: { select: { id: true, firstName: true, lastName: true, email: true } }
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        taggedUsers: { select: { id: true, firstName: true, lastName: true, email: true } }
       }
     });
 
@@ -86,6 +94,7 @@ exports.createComment = async (req, res) => {
       parentId: comment.parentId,
       parent: null, // parent not eagerly loaded here; consumers can resolve if needed
       replies: [],
+      taggedUsers: comment.taggedUsers || [],
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
       editedAt: comment.editedAt,
@@ -135,16 +144,18 @@ exports.getComments = async (req, res) => {
     
     console.log('🔍 Prisma where clause:', where);
     
-    // Fetch comments with user, parent, and replies for nesting
+    // Fetch comments with user, parent, replies, and taggedUsers for nesting
     const comments = await prisma.comment.findMany({
       where,
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        taggedUsers: { select: { id: true, firstName: true, lastName: true, email: true } },
         parent: { select: { id: true, userId: true, text: true } },
         replies: {
           where: { isDeleted: false },
           include: {
-            user: { select: { id: true, firstName: true, lastName: true, email: true } }
+            user: { select: { id: true, firstName: true, lastName: true, email: true } },
+            taggedUsers: { select: { id: true, firstName: true, lastName: true, email: true } }
           },
           orderBy: { createdAt: 'asc' }
         }

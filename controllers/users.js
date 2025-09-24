@@ -4,9 +4,16 @@ const prisma = new PrismaClient();
 // Get all users from the current user's organization (for task assignment dropdown)
 exports.getOrgUsers = async (req, res) => {
   try {
+    console.log('🔍 getOrgUsers: Called');
+    console.log('🔍 getOrgUsers: req.user:', req.user);
+    
     if (!req.user || !req.user.orgId) {
+      console.log('🔍 getOrgUsers: Unauthorized - no user or orgId');
       return res.status(401).json({ error: 'Unauthorized' });
     }
+    
+    console.log('🔍 getOrgUsers: Fetching users for orgId:', req.user.orgId);
+    
     const users = await prisma.user.findMany({
       where: { orgId: req.user.orgId },
       select: {
@@ -16,14 +23,20 @@ exports.getOrgUsers = async (req, res) => {
         email: true
       }
     });
+    
+    console.log('🔍 getOrgUsers: Found users:', users);
+    
     // Add a fullName field for dropdown display
     const formatted = users.map(u => ({
       id: u.id,
       fullName: `${u.firstName} ${u.lastName}`.trim(),
       email: u.email
     }));
+    
+    console.log('🔍 getOrgUsers: Returning formatted users:', formatted);
     res.json(formatted);
   } catch (err) {
+    console.log('🔍 getOrgUsers: Error:', err);
     res.status(400).json([]);
   }
 };
@@ -209,12 +222,18 @@ exports.getUsers = async (req, res) => {
         lastName: true,
         orgId: true,
         role: true,
-        
         createdAt: true,
         updatedAt: true
       }
     });
-    res.json(Array.isArray(users) ? users : []);
+
+    // Add fullName to each user
+    const usersWithFullName = users.map(user => ({
+      ...user,
+      fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim()
+    }));
+
+    res.json(Array.isArray(usersWithFullName) ? usersWithFullName : []);
   } catch (err) {
     res.status(400).json([]);
   }
