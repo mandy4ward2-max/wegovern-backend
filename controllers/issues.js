@@ -19,6 +19,9 @@ exports.getIssues = async (req, res) => {
         User_Issue_assignedToIdToUser: {
           select: { id: true, firstName: true, lastName: true, email: true }
         },
+        User_Issue_closedByIdToUser: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
         Motion: {
           select: { id: true }
         },
@@ -39,16 +42,46 @@ exports.getIssues = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Add comment counts (count only non-deleted comments)
+    // Build a unique task count per issue, counting tasks directly on the issue OR via motions for the issue
+    const issueIds = issues.map(i => i.id);
+    let uniqueTaskIdsByIssue = {};
+    if (issueIds.length) {
+      const tasks = await prisma.task.findMany({
+        where: {
+          OR: [
+            { issueId: { in: issueIds } },
+            { motion: { is: { issueId: { in: issueIds } } } }
+          ]
+        },
+        select: {
+          id: true,
+          issueId: true,
+          motion: { select: { issueId: true } }
+        }
+      });
+      uniqueTaskIdsByIssue = tasks.reduce((acc, t) => {
+        const iid = t.issueId ?? t.motion?.issueId;
+        if (!iid) return acc;
+        if (!acc[iid]) acc[iid] = new Set();
+        acc[iid].add(t.id);
+        return acc;
+      }, {});
+    }
+
+    // Add counts (count only non-deleted comments)
     const issuesWithCounts = issues.map(issue => {
       const { comments, ...issueWithoutComments } = issue;
+      const directTaskCount = issue._count.Task || 0; // kept for reference; final uses unique set
+      const viaMotionCount = 0; // replaced by unique set logic
+      const uniqueCount = uniqueTaskIdsByIssue[issue.id]?.size || (directTaskCount + viaMotionCount);
       return {
         ...issueWithoutComments,
         motionCount: issue._count.Motion,
-        taskCount: issue._count.Task,
+        taskCount: uniqueCount,
         commentCount: comments.length,
         createdBy: issue.User_Issue_createdByIdToUser,
-        assignedTo: issue.User_Issue_assignedToIdToUser
+        assignedTo: issue.User_Issue_assignedToIdToUser,
+        closedBy: issue.User_Issue_closedByIdToUser
       };
     });
 
@@ -73,6 +106,9 @@ exports.getIssueById = async (req, res) => {
         User_Issue_assignedToIdToUser: {
           select: { id: true, firstName: true, lastName: true, email: true }
         },
+        User_Issue_closedByIdToUser: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
         Motion: {
           include: {
             User: { select: { id: true, firstName: true, lastName: true } },
@@ -93,12 +129,26 @@ exports.getIssueById = async (req, res) => {
       return res.status(404).json({ error: 'Issue not found' });
     }
 
+    // Gather tasks that are directly linked or via motions for this issue
+    const allTasks = await prisma.task.findMany({
+      where: {
+        OR: [
+          { issueId: issueId },
+          { motion: { is: { issueId: issueId } } }
+        ]
+      },
+      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
     const issueWithDetails = {
       ...issue,
       createdBy: issue.User_Issue_createdByIdToUser,
       assignedTo: issue.User_Issue_assignedToIdToUser,
+      closedBy: issue.User_Issue_closedByIdToUser,
       motionCount: issue.Motion.length,
-      taskCount: issue.Task.length,
+      taskCount: allTasks.length,
+      allTasks,
       commentCount: 0 // TODO: Add when comments are linked to issues
     };
 
@@ -294,6 +344,83 @@ exports.getIssueStats = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching issue stats:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Close issue (set CLOSED status, resolution, closedBy and closedAt)
+exports.closeIssue = async (req, res) => {
+  try {
+    const issueId = parseInt(req.params.id);
+    const userId = req.user.id;
+    // Simplify - just get resolution from body, use URL param for id and auth for user
+    const { resolution } = req.body || {};
+
+    const issue = await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        status: 'CLOSED',
+        resolution: resolution || null,
+        closedById: userId,
+        closedAt: new Date(),
+        updatedAt: new Date()
+      },
+      include: {
+        User_Issue_createdByIdToUser: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        User_Issue_assignedToIdToUser: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        User_Issue_closedByIdToUser: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        },
+        Motion: {
+          include: {
+            User: { select: { id: true, firstName: true, lastName: true } },
+            _count: { select: { votes: true, comments: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        _count: {
+          select: { Motion: true, Task: true }
+        }
+      }
+    });
+
+    // Compute combined tasks (direct + via motions) to keep parity with getIssueById
+    const allTasks = await prisma.task.findMany({
+      where: {
+        OR: [
+          { issueId: issueId },
+          { motion: { is: { issueId: issueId } } }
+        ]
+      },
+      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const issueWithCounts = {
+      ...issue,
+      createdBy: issue.User_Issue_createdByIdToUser,
+      assignedTo: issue.User_Issue_assignedToIdToUser,
+      closedBy: issue.User_Issue_closedByIdToUser,
+      motionCount: issue._count.Motion,
+      taskCount: allTasks.length,
+      allTasks,
+      commentCount: 0
+    };
+
+    if (global.io && issue.orgId) {
+      global.io.to(`org_${issue.orgId}`).emit('issueUpdate', {
+        type: 'ISSUE_UPDATED',
+        issue: issueWithCounts
+      });
+    }
+
+    res.json(issueWithCounts);
+  } catch (err) {
+    console.error('Error closing issue:', err);
     res.status(500).json({ error: err.message });
   }
 };

@@ -25,21 +25,31 @@ const prisma = new PrismaClient();
 
 exports.createTask = async (req, res) => {
   try {
-    let { action, userId, due, motionId, status, completed, dateCompleted, completeComment } = req.body;
+    let { action, userId, due, motionId, issueId, status, completed, dateCompleted, completeComment } = req.body;
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
     }
     userId = parseInt(userId, 10);
     motionId = parseInt(motionId, 10);
+    issueId = parseInt(issueId, 10);
     
     // Default status is UNAPPROVED for new tasks
     const taskStatus = status || 'UNAPPROVED';
     
+    // If issueId not provided, try to infer from motion
+    if ((isNaN(issueId) || !issueId) && !isNaN(motionId) && motionId) {
+      try {
+        const m = await prisma.motion.findUnique({ where: { id: motionId }, select: { issueId: true } });
+        if (m && m.issueId) issueId = m.issueId;
+      } catch {}
+    }
+
     const data = { 
       action, 
       userId, 
       due: due ? new Date(due) : null, 
-      motionId, 
+      motionId: isNaN(motionId) ? null : motionId, 
+      issueId: isNaN(issueId) ? null : issueId, 
       status: taskStatus,
       completed: !!completed, // Keep for backward compatibility
       dateCompleted: dateCompleted ? new Date(dateCompleted) : null, 
@@ -48,12 +58,19 @@ exports.createTask = async (req, res) => {
     const task = await prisma.task.create({ data, include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } });
     
     // Broadcast task creation to all users in the organization
-    if (global.io && motionId) {
+    if (global.io) {
       try {
-        const motion = await prisma.motion.findUnique({ where: { id: motionId }, select: { orgId: true } });
-        if (motion && motion.orgId) {
-          console.log(`🔥 Broadcasting TASK_CREATED to org_${motion.orgId}`);
-          global.io.to(`org_${motion.orgId}`).emit('taskUpdate', {
+        let orgIdForBroadcast = null;
+        if (!isNaN(motionId) && motionId) {
+          const motion = await prisma.motion.findUnique({ where: { id: motionId }, select: { orgId: true } });
+          orgIdForBroadcast = motion?.orgId || null;
+        } else if (!isNaN(issueId) && issueId) {
+          const issue = await prisma.issue.findUnique({ where: { id: issueId }, select: { orgId: true } });
+          orgIdForBroadcast = issue?.orgId || null;
+        }
+        if (orgIdForBroadcast) {
+          console.log(`🔥 Broadcasting TASK_CREATED to org_${orgIdForBroadcast}`);
+          global.io.to(`org_${orgIdForBroadcast}`).emit('taskUpdate', {
             type: 'TASK_CREATED',
             task: {
               ...task,
@@ -116,15 +133,22 @@ exports.getTasks = async (req, res) => {
           include: {
             org: true
           }
+        },
+        Issue: {
+          include: {
+            Organization: true
+          }
         }
       }
     });
     
     // Filter tasks by user's organization
     const userOrgId = req.user.orgId;
-    const orgFilteredTasks = tasks.filter(task => 
-      task.motion && task.motion.orgId === userOrgId
-    );
+    const orgFilteredTasks = tasks.filter(task => {
+      const motionOrgOk = task.motion && task.motion.orgId === userOrgId;
+      const issueOrgOk = task.Issue && task.Issue.orgId === userOrgId;
+      return motionOrgOk || issueOrgOk;
+    });
     
     // Add username field for convenience
     const formatted = orgFilteredTasks.map(task => ({
@@ -163,23 +187,27 @@ exports.updateTask = async (req, res) => {
       data: updateData,
       include: {
         user: { select: { id: true, firstName: true, lastName: true, email: true } },
-        motion: { select: { orgId: true } }
+        motion: { select: { orgId: true } },
+        Issue: { select: { orgId: true } }
       }
     });
     
     // Broadcast task update to all users in the organization
-    if (global.io && task.motion && task.motion.orgId) {
-      console.log(`🔥 Broadcasting TASK_UPDATED to org_${task.motion.orgId}`);
-      global.io.to(`org_${task.motion.orgId}`).emit('taskUpdate', {
-        type: 'TASK_UPDATED',
-        task: {
-          ...task,
-          username: task.user ? `${task.user.firstName} ${task.user.lastName}`.trim() : null
-        }
-      });
-      console.log(`✅ Task update broadcasted successfully`);
-    } else {
-      console.log(`❌ Cannot broadcast task update - global.io: ${!!global.io}, task.motion: ${!!task.motion}, orgId: ${task.motion?.orgId}`);
+    if (global.io) {
+      const orgIdForBroadcast = task.motion?.orgId || task.Issue?.orgId || null;
+      if (orgIdForBroadcast) {
+        console.log(`🔥 Broadcasting TASK_UPDATED to org_${orgIdForBroadcast}`);
+        global.io.to(`org_${orgIdForBroadcast}`).emit('taskUpdate', {
+          type: 'TASK_UPDATED',
+          task: {
+            ...task,
+            username: task.user ? `${task.user.firstName} ${task.user.lastName}`.trim() : null
+          }
+        });
+        console.log(`✅ Task update broadcasted successfully`);
+      } else {
+        console.log(`❌ Cannot broadcast task update - global.io: ${!!global.io}, task.motion: ${!!task.motion}, task.Issue: ${!!task.Issue}`);
+      }
     }
     
     res.json(task);
@@ -195,17 +223,20 @@ exports.deleteTask = async (req, res) => {
     // Get task info before deletion for WebSocket broadcast
     const taskToDelete = await prisma.task.findUnique({ 
       where: { id: taskId },
-      include: { motion: { select: { orgId: true } } }
+      include: { motion: { select: { orgId: true } }, Issue: { select: { orgId: true } } }
     });
     
     await prisma.task.delete({ where: { id: taskId } });
     
     // Broadcast task deletion to all users in the organization
-    if (global.io && taskToDelete && taskToDelete.motion && taskToDelete.motion.orgId) {
-      global.io.to(`org_${taskToDelete.motion.orgId}`).emit('taskUpdate', {
-        type: 'TASK_DELETED',
-        taskId: taskId
-      });
+    if (global.io && taskToDelete) {
+      const orgIdForBroadcast = taskToDelete.motion?.orgId || taskToDelete.Issue?.orgId || null;
+      if (orgIdForBroadcast) {
+        global.io.to(`org_${orgIdForBroadcast}`).emit('taskUpdate', {
+          type: 'TASK_DELETED',
+          taskId: taskId
+        });
+      }
     }
     
     res.json({ success: true });

@@ -17,6 +17,9 @@ router.post('/', issuesController.createIssue);
 // Update issue
 router.put('/:id', issuesController.updateIssue);
 
+// Close issue
+router.post('/:id/close', issuesController.closeIssue);
+
 // Delete issue
 router.delete('/:id', issuesController.deleteIssue);
 

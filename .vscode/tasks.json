@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Prisma Migrate Dev",
+			"type": "shell",
+			"command": "npx prisma migrate dev --name add-issue-closure-fields .",
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		}
+	]
+}

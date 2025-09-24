@@ -35,6 +35,7 @@ model User {
   comments                       Comment[]
   Issue_Issue_assignedToIdToUser Issue[]        @relation("Issue_assignedToIdToUser")
   Issue_Issue_createdByIdToUser  Issue[]        @relation("Issue_createdByIdToUser")
+  Issue_Issue_closedByIdToUser   Issue[]        @relation("Issue_closedByIdToUser")
   Motion                         Motion[]
   orgsOwned                      Organization[] @relation("OrgOwner")
   tasks                          Task[]
@@ -134,10 +135,14 @@ model Issue {
   orgId                         Int
   createdById                   Int
   assignedToId                  Int?
+  closedById                    Int?
+  closedAt                      DateTime?
+  resolution                    String?
   createdAt                     DateTime     @default(now())
   updatedAt                     DateTime
   User_Issue_assignedToIdToUser User?        @relation("Issue_assignedToIdToUser", fields: [assignedToId], references: [id])
   User_Issue_createdByIdToUser  User         @relation("Issue_createdByIdToUser", fields: [createdById], references: [id])
+  User_Issue_closedByIdToUser   User?        @relation("Issue_closedByIdToUser", fields: [closedById], references: [id])
   Organization                  Organization @relation(fields: [orgId], references: [id])
   Motion                        Motion[]
   Task                          Task[]
