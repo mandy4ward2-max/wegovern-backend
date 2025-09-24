@@ -23,45 +23,20 @@ exports.createComment = async (req, res) => {
     taskId = taskId ? parseInt(taskId, 10) : null;
     userId = parseInt(userId, 10);
     
-    const data = { 
-      motionId, 
-      issueId,
-      taskId,
-      userId, 
-      text, 
-      parentId: parentId || null 
-    };
-    
-    // If taggedUserIds provided, connect them
-    if (taggedUserIds && Array.isArray(taggedUserIds) && taggedUserIds.length > 0) {
-      data.taggedUsers = {
-        connect: taggedUserIds.map(id => ({ id: parseInt(id, 10) }))
-      };
-    }
-    
-    const comment = await prisma.comment.create({ 
-      data,
-      include: {
-        // include email to keep parity with getComments and websocket formatting
-        user: { select: { id: true, firstName: true, lastName: true, email: true } },
-        taggedUsers: { select: { id: true, firstName: true, lastName: true, email: true } }
-      }
-    });
-
-    // Get organization ID for broadcasting based on the parent type
+    // Determine organization once (used for @Everyone expansion and broadcasting)
     let orgId = null;
     if (motionId) {
       const motion = await prisma.motion.findUnique({
         where: { id: motionId },
         select: { orgId: true }
       });
-      orgId = motion?.orgId;
+      orgId = motion?.orgId || null;
     } else if (issueId) {
       const issue = await prisma.issue.findUnique({
         where: { id: issueId },
         select: { orgId: true }
       });
-      orgId = issue?.orgId;
+      orgId = issue?.orgId || null;
     } else if (taskId) {
       const task = await prisma.task.findUnique({
         where: { id: taskId },
@@ -70,8 +45,48 @@ exports.createComment = async (req, res) => {
           Issue: { select: { orgId: true } }
         }
       });
-      orgId = task?.motion?.orgId || task?.Issue?.orgId;
+      orgId = task?.motion?.orgId || task?.Issue?.orgId || null;
     }
+
+    const data = { 
+      motionId, 
+      issueId,
+      taskId,
+      userId, 
+      text, 
+      parentId: parentId || null 
+    };
+
+    // Normalize taggedUserIds; expand 'everyone' to all org users
+    if (taggedUserIds && Array.isArray(taggedUserIds) && taggedUserIds.length > 0) {
+      const hasEveryone = taggedUserIds.some(v => String(v) === 'everyone');
+      let connectIds = [];
+      if (hasEveryone && orgId) {
+        const orgUsers = await prisma.user.findMany({
+          where: { orgId, role: { not: 'Deleted' } },
+          select: { id: true }
+        });
+        connectIds = orgUsers.map(u => u.id);
+      } else {
+        connectIds = taggedUserIds
+          .map(v => parseInt(v, 10))
+          .filter(n => Number.isInteger(n));
+      }
+      // Deduplicate and avoid empty connect
+      connectIds = Array.from(new Set(connectIds));
+      if (connectIds.length > 0) {
+        data.taggedUsers = { connect: connectIds.map(id => ({ id })) };
+      }
+    }
+
+    const comment = await prisma.comment.create({ 
+      data,
+      include: {
+        // include email to keep parity with getComments and websocket formatting
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        taggedUsers: { select: { id: true, firstName: true, lastName: true, email: true } }
+      }
+    });
 
     // Prepare a formatted comment (same shape as getComments) for response and broadcast
     const formattedComment = {
@@ -104,7 +119,7 @@ exports.createComment = async (req, res) => {
     };
 
     // Broadcast new comment to all users in the same organization
-    if (global.io && orgId) {
+  if (global.io && orgId) {
       const eventData = {
         type: 'comment',
         comment: formattedComment
