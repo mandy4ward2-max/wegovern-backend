@@ -114,8 +114,8 @@ exports.createComment = async (req, res) => {
       updatedAt: comment.updatedAt,
       editedAt: comment.editedAt,
       isEdited: !!comment.editedAt,
-      // editable is consumer-specific (depends on current user); clients should compute
-      editable: false
+      // Mark editable for the author immediately so UI shows Edit/Delete without needing a reload
+      editable: req.user && req.user.id === comment.userId
     };
 
     // Broadcast new comment to all users in the same organization
