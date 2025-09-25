@@ -18,6 +18,7 @@ model Organization {
   Issue              Issue[]
   motions            Motion[]
   approvals          Approval[]
+  meetings           Meeting[]
   owner              User?       @relation("OrgOwner", fields: [ownerUserId], references: [id])
   users              User[]
 }
@@ -45,6 +46,9 @@ model User {
   taggedInComments               Comment[]      @relation("CommentTags")
   approvalsSubmitted             Approval[]     @relation("ApprovalSubmittedBy")
   approvalsProcessed             Approval[]     @relation("ApprovalApprovedBy")
+  meetingsCreated                Meeting[]      @relation("MeetingCreatedBy")
+  meetingInvites                 MeetingInvitee[] @relation("MeetingInvitees")
+  agendaAttachmentsUploaded      AgendaAttachment[] @relation("AgendaAttachmentUploadedBy")
 }
 
 model Motion {
@@ -66,6 +70,7 @@ model Motion {
   User        User         @relation(fields: [userId], references: [id])
   tasks       Task[]
   votes       Vote[]
+  agendaItems AgendaItem[]
 }
 
 model Task {
@@ -152,6 +157,67 @@ model Issue {
   Motion                        Motion[]
   Task                          Task[]
   comments                      Comment[]
+}
+
+model Meeting {
+  id              Int           @id @default(autoincrement())
+  name            String
+  description     String?
+  startDateTime   DateTime      // Combined start date and time
+  endDateTime     DateTime      // Combined end date and time
+  orgId           Int
+  createdById     Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  org             Organization  @relation(fields: [orgId], references: [id])
+  createdBy       User          @relation("MeetingCreatedBy", fields: [createdById], references: [id])
+  agendaItems     AgendaItem[]
+  invitees        MeetingInvitee[]
+}
+
+model MeetingInvitee {
+  id          Int      @id @default(autoincrement())
+  meetingId   Int
+  userId      Int
+  createdAt   DateTime @default(now())
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user        User     @relation("MeetingInvitees", fields: [userId], references: [id])
+  
+  @@unique([meetingId, userId]) // Ensure each user can only be invited once per meeting
+}
+
+model AgendaItem {
+  id              Int           @id @default(autoincrement())
+  meetingId       Int
+  type            String        // "section", "infoItem", "motionItem", "newMotion"
+  title           String        // For sections and new motions
+  agendaItem      String?       // For info items and submitted motions
+  description     String?       // For new motions
+  motionId        Int?          // Optional link to a motion (for motionItem type)
+  parentSectionId Int?          // Link to parent section for items under sections
+  sortOrder       Int           @default(0)
+  number          String?       // The display number (e.g., "1.1", "2.3", etc.)
+  isSubSection    Boolean       @default(false) // For sub-sections
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  meeting         Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  motion          Motion?       @relation(fields: [motionId], references: [id])
+  attachments     AgendaAttachment[]
+}
+
+model AgendaAttachment {
+  id              Int           @id @default(autoincrement())
+  agendaItemId    Int
+  filename        String
+  originalName    String
+  url             String
+  mimeType        String?
+  size            Int?
+  uploadedById    Int?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  agendaItem      AgendaItem    @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  uploadedBy      User?         @relation("AgendaAttachmentUploadedBy", fields: [uploadedById], references: [id])
 }
 
 model Approval {

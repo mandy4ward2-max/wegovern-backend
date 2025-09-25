@@ -311,10 +311,15 @@ async function handleApprovalTypeProcessing(approval, action) {
         
       case 'task_approval':
         if (action === 'approve' && approval.relatedId) {
-          // Update task status
+          // Update task status from UNAPPROVED to NOT_STARTED
           await prisma.task.update({
             where: { id: approval.relatedId },
             data: { status: 'NOT_STARTED' }
+          });
+        } else if (action === 'reject' && approval.relatedId) {
+          // Delete rejected tasks
+          await prisma.task.delete({
+            where: { id: approval.relatedId }
           });
         }
         break;

@@ -57,35 +57,44 @@ exports.createTask = async (req, res) => {
     };
     const task = await prisma.task.create({ data, include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } });
     
-    // Create approval request for standalone tasks (not associated with motions)
-    if (!motionId || isNaN(motionId)) {
-      let orgIdForApproval = null;
-      if (!isNaN(issueId) && issueId) {
-        const issue = await prisma.issue.findUnique({ where: { id: issueId }, select: { orgId: true } });
-        orgIdForApproval = issue?.orgId;
-      } else {
-        // Get orgId from the user
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { orgId: true } });
-        orgIdForApproval = user?.orgId;
-      }
-      
-      if (orgIdForApproval) {
-        await prisma.approval.create({
-          data: {
-            type: 'task_approval',
-            description: `Standalone task: ${action}`,
-            submittedById: req.user?.id || userId, // Use current user or task assignee
-            orgId: orgIdForApproval,
-            relatedId: task.id,
-            metadata: JSON.stringify({
-              taskAction: action,
-              assignedTo: task.user ? `${task.user.firstName} ${task.user.lastName}`.trim() : null,
-              dueDate: due || null,
-              isStandalone: true
-            })
-          }
-        });
-      }
+    // Create approval request for all new tasks (requires approval before showing on task board)
+    let orgIdForApproval = null;
+    let taskDescription = '';
+    let isStandalone = false;
+    
+    if (!isNaN(issueId) && issueId) {
+      // Task created from an issue
+      const issue = await prisma.issue.findUnique({ where: { id: issueId }, select: { orgId: true, title: true } });
+      orgIdForApproval = issue?.orgId;
+      taskDescription = `Task from issue "${issue?.title || 'Unknown'}": ${action}`;
+      isStandalone = false;
+    } else if (!motionId || isNaN(motionId)) {
+      // Standalone task (not from issue or motion)
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { orgId: true } });
+      orgIdForApproval = user?.orgId;
+      taskDescription = `Standalone task: ${action}`;
+      isStandalone = true;
+    }
+    // Note: Tasks from motions don't need separate approval as the motion itself requires approval
+    
+    if (orgIdForApproval && (!motionId || isNaN(motionId))) {
+      await prisma.approval.create({
+        data: {
+          type: 'task_approval',
+          description: taskDescription,
+          submittedById: req.user?.id || userId, // Use current user or task assignee
+          orgId: orgIdForApproval,
+          relatedId: task.id,
+          metadata: JSON.stringify({
+            taskAction: action,
+            assignedTo: task.user ? `${task.user.firstName} ${task.user.lastName}`.trim() : null,
+            dueDate: due || null,
+            isStandalone: isStandalone,
+            fromIssue: !isStandalone,
+            issueId: !isNaN(issueId) ? issueId : null
+          })
+        }
+      });
     }
     
     // Broadcast task creation to all users in the organization
@@ -152,6 +161,12 @@ exports.getTasks = async (req, res) => {
       } else if (req.query.status === 'false') {
         where.completed = false;
       }
+    } else {
+      // By default, exclude unapproved tasks from the task board
+      // Only show them when explicitly requested via status=unapproved
+      where.status = {
+        not: 'UNAPPROVED'
+      };
     }
     
     if (req.query.motionId) where.motionId = Number(req.query.motionId);
