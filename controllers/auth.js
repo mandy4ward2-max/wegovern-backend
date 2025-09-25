@@ -6,8 +6,16 @@ exports.register = async (req, res) => {
       select: { id: true }
     });
     if (existing) return res.status(400).json({ error: 'Email already registered' });
+    
     const user = await prisma.user.create({
-      data: { email, password: '', firstName, lastName, orgId },
+      data: { 
+        email, 
+        password: '', 
+        firstName, 
+        lastName, 
+        orgId,
+        role: 'Pending' // Set to pending until approved
+      },
       select: {
         id: true,
         email: true,
@@ -19,8 +27,25 @@ exports.register = async (req, res) => {
         updatedAt: true
       }
     });
+
+    // Create approval request for the new user
+    await prisma.approval.create({
+      data: {
+        type: 'user_registration',
+        description: `New user registration request: ${firstName} ${lastName} (${email})`,
+        submittedById: user.id,
+        orgId: user.orgId,
+        relatedId: user.id,
+        metadata: JSON.stringify({
+          userEmail: email,
+          userName: `${firstName} ${lastName}`.trim(),
+          registrationDate: new Date().toISOString()
+        })
+      }
+    });
+
     const token = jwt.sign({ id: user.id, orgId: user.orgId, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
-    res.json({ token, user });
+    res.json({ token, user, message: 'Registration successful. Your account is pending approval.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

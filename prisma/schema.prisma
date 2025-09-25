@@ -8,16 +8,17 @@ datasource db {
 }
 
 model Organization {
-  id                 Int      @id @default(autoincrement())
+  id                 Int         @id @default(autoincrement())
   name               String
-  code               String   @unique
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  majorityVoteNumber Int      @default(1)
+  code               String      @unique
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  majorityVoteNumber Int         @default(1)
   ownerUserId        Int?
   Issue              Issue[]
   motions            Motion[]
-  owner              User?    @relation("OrgOwner", fields: [ownerUserId], references: [id])
+  approvals          Approval[]
+  owner              User?       @relation("OrgOwner", fields: [ownerUserId], references: [id])
   users              User[]
 }
 
@@ -42,6 +43,8 @@ model User {
   org                            Organization   @relation(fields: [orgId], references: [id])
   votes                          Vote[]
   taggedInComments               Comment[]      @relation("CommentTags")
+  approvalsSubmitted             Approval[]     @relation("ApprovalSubmittedBy")
+  approvalsProcessed             Approval[]     @relation("ApprovalApprovedBy")
 }
 
 model Motion {
@@ -149,6 +152,25 @@ model Issue {
   Motion                        Motion[]
   Task                          Task[]
   comments                      Comment[]
+}
+
+model Approval {
+  id              Int      @id @default(autoincrement())
+  type            String   // "user_registration", "motion_approval", "task_approval", etc.
+  status          String   @default("pending") // "pending", "approved", "rejected"
+  submittedById   Int
+  approvedById    Int?
+  dateSubmitted   DateTime @default(now())
+  dateProcessed   DateTime?
+  description     String?
+  relatedId       Int?     // ID of the related record (user, motion, task, etc.)
+  orgId           Int
+  metadata        String?  // JSON string for additional data
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  submittedBy     User     @relation("ApprovalSubmittedBy", fields: [submittedById], references: [id])
+  approvedBy      User?    @relation("ApprovalApprovedBy", fields: [approvedById], references: [id])
+  org             Organization @relation(fields: [orgId], references: [id])
 }
 
 enum TaskStatus {

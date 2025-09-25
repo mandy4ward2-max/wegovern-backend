@@ -91,6 +91,7 @@ app.use('/api/comments', authMiddleware, require('./routes/comments'));
 app.use('/api/attachments', authMiddleware, require('./routes/attachments'));
 app.use('/api/votes', authMiddleware, require('./routes/votes'));
 app.use('/api/notifications', authMiddleware, require('./routes/notifications'));
+app.use('/api/approvals', authMiddleware, require('./routes/approvals'));
 
 
 

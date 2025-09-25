@@ -54,6 +54,23 @@ exports.createMotion = async (req, res) => {
       }
     });
 
+    // Create approval request for the motion
+    await prisma.approval.create({
+      data: {
+        type: 'motion_approval',
+        description: `Motion: ${motionResult.motion}${motionResult.summary ? ' - ' + motionResult.summary : ''}`,
+        submittedById: motionResult.userId,
+        orgId: motionResult.orgId,
+        relatedId: motionResult.id,
+        metadata: JSON.stringify({
+          motionTitle: motionResult.summary,
+          motionText: motionResult.motion,
+          hasAttachments: motionResult.attachments?.length > 0,
+          hasTasks: motionResult.tasks?.length > 0
+        })
+      }
+    });
+
     // Broadcast new motion to all users in the same organization
     if (global.io) {
       global.io.to(`org_${orgId}`).emit('newMotion', {

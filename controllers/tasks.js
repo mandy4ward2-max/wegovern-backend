@@ -57,6 +57,37 @@ exports.createTask = async (req, res) => {
     };
     const task = await prisma.task.create({ data, include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } });
     
+    // Create approval request for standalone tasks (not associated with motions)
+    if (!motionId || isNaN(motionId)) {
+      let orgIdForApproval = null;
+      if (!isNaN(issueId) && issueId) {
+        const issue = await prisma.issue.findUnique({ where: { id: issueId }, select: { orgId: true } });
+        orgIdForApproval = issue?.orgId;
+      } else {
+        // Get orgId from the user
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { orgId: true } });
+        orgIdForApproval = user?.orgId;
+      }
+      
+      if (orgIdForApproval) {
+        await prisma.approval.create({
+          data: {
+            type: 'task_approval',
+            description: `Standalone task: ${action}`,
+            submittedById: req.user?.id || userId, // Use current user or task assignee
+            orgId: orgIdForApproval,
+            relatedId: task.id,
+            metadata: JSON.stringify({
+              taskAction: action,
+              assignedTo: task.user ? `${task.user.firstName} ${task.user.lastName}`.trim() : null,
+              dueDate: due || null,
+              isStandalone: true
+            })
+          }
+        });
+      }
+    }
+    
     // Broadcast task creation to all users in the organization
     if (global.io) {
       try {
