@@ -15,7 +15,7 @@ exports.getApprovals = async (req, res) => {
       return res.status(403).json({ error: 'Insufficient permissions to view approvals' });
     }
 
-    const { type, status, submittedBy, dateFrom, dateTo } = req.query;
+    const { type, status, submittedBy, dateFrom, dateTo, processedDateFrom, processedDateTo } = req.query;
     
     // Build where clause for filtering
     const where = {
@@ -34,15 +34,25 @@ exports.getApprovals = async (req, res) => {
       where.submittedById = parseInt(submittedBy);
     }
 
-    if (dateFrom) {
-      where.dateSubmitted = { gte: new Date(dateFrom) };
+    // Date submitted range filter
+    if (dateFrom || dateTo) {
+      where.dateSubmitted = {};
+      if (dateFrom) {
+        where.dateSubmitted.gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        where.dateSubmitted.lte = new Date(dateTo);
+      }
     }
 
-    if (dateTo) {
-      if (where.dateSubmitted) {
-        where.dateSubmitted.lte = new Date(dateTo);
-      } else {
-        where.dateSubmitted = { lte: new Date(dateTo) };
+    // Date processed range filter
+    if (processedDateFrom || processedDateTo) {
+      where.dateProcessed = {};
+      if (processedDateFrom) {
+        where.dateProcessed.gte = new Date(processedDateFrom);
+      }
+      if (processedDateTo) {
+        where.dateProcessed.lte = new Date(processedDateTo);
       }
     }
 
@@ -273,10 +283,10 @@ async function handleApprovalTypeProcessing(approval, action) {
         
       case 'motion_approval':
         if (action === 'approve' && approval.relatedId) {
-          // Update motion status and activate associated tasks
-          await prisma.motion.update({
+          // Update motion status from 'unapproved' to 'pending'
+          const updatedMotion = await prisma.motion.update({
             where: { id: approval.relatedId },
-            data: { status: 'approved' }
+            data: { status: 'pending' }
           });
           
           // Activate tasks associated with the motion
@@ -284,6 +294,18 @@ async function handleApprovalTypeProcessing(approval, action) {
             where: { motionId: approval.relatedId },
             data: { status: 'NOT_STARTED' }
           });
+
+          // NOW send notifications since motion is approved and pending
+          if (global.io) {
+            global.io.to(`org_${updatedMotion.orgId}`).emit('newMotion', {
+              type: 'MOTION_APPROVED',
+              motion: updatedMotion
+            });
+          }
+
+          // Send email notifications to all users in the organization
+          const { notifyNewMotion } = require('./notifications');
+          notifyNewMotion(approval.relatedId);
         }
         break;
         

@@ -4,7 +4,8 @@ const prisma = new PrismaClient();
 
 exports.createMotion = async (req, res) => {
   try {
-    const { title, motion, description, orgId, status, tasks, attachments, createdBy, issueId } = req.body;
+    const { title, motion, description, orgId, tasks, attachments, createdBy, issueId } = req.body;
+    // Note: Deliberately NOT extracting 'status' from req.body to force unapproved status
     if (!motion || !orgId) {
       return res.status(400).json({ error: 'Missing required fields: motion and orgId are required' });
     }
@@ -16,6 +17,7 @@ exports.createMotion = async (req, res) => {
       discussion: description || '', // Use description as discussion
       userId: createdBy || req.user.id, // submittedBy -> userId
       orgId: Number(orgId),
+      status: 'unapproved', // All motions start as unapproved until approved
       issueId: issueId ? Number(issueId) : null, // Link to issue if provided
       tasks: tasks && Array.isArray(tasks) && tasks.length > 0 ? {
         create: tasks.map(t => ({
@@ -71,16 +73,8 @@ exports.createMotion = async (req, res) => {
       }
     });
 
-    // Broadcast new motion to all users in the same organization
-    if (global.io) {
-      global.io.to(`org_${orgId}`).emit('newMotion', {
-        type: 'MOTION_CREATED',
-        motion: motionResult
-      });
-    }
-
-    // Send email notifications to all users in the organization
-    notifyNewMotion(motionResult.id);
+    // Note: Do NOT send notifications for unapproved motions
+    // Notifications will be sent when motion is approved and status changes to 'pending'
 
     res.status(201).json(motionResult);
   } catch (err) {

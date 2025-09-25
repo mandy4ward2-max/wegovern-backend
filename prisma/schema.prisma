@@ -53,7 +53,7 @@ model Motion {
   userId      Int
   summary     String?
   discussion  String?
-  status      String       @default("pending") // "pending", "passed", "defeated"
+  status      String       @default("unapproved") // "unapproved", "pending", "passed", "defeated"
   dateVoted   DateTime?
   issueId     Int?
   orgId       Int
