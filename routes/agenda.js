@@ -6,7 +6,11 @@ const authMiddleware = require('../middleware/auth');
 const prisma = new PrismaClient();
 
 // Save agenda for a meeting
-router.post('/meetings/:meetingId/agenda', authMiddleware, async (req, res) => {
+router.post('/:meetingId', async (req, res) => {
+  console.log('POST /:meetingId hit with params:', req.params);
+  console.log('Request body keys:', Object.keys(req.body || {}));
+  console.log('User from auth middleware:', req.user);
+  
   try {
     const { meetingId } = req.params;
     const { sections, infoItems, motionItems, newMotionItems } = req.body;
@@ -167,7 +171,7 @@ router.post('/meetings/:meetingId/agenda', authMiddleware, async (req, res) => {
 });
 
 // Get agenda for a meeting
-router.get('/meetings/:meetingId/agenda', authMiddleware, async (req, res) => {
+router.get('/:meetingId', async (req, res) => {
   try {
     const { meetingId } = req.params;
 
