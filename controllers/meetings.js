@@ -289,7 +289,9 @@ exports.updateMeeting = async (req, res) => {
       });
 
       // Update agenda items if provided
-      if (agendaItems && Array.isArray(agendaItems)) {
+      // NOTE: Agenda items are now handled by the dedicated /api/agenda endpoint
+      // This section has been disabled to prevent conflicts
+      if (false && agendaItems && Array.isArray(agendaItems)) {
         // Delete existing agenda items
         await tx.agendaItem.deleteMany({
           where: { meetingId: parseInt(id) }
