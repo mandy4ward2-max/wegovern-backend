@@ -14,7 +14,7 @@ const prisma = new PrismaClient();
 // Setup Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:3001', 'http://localhost:3002'],
+    origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3000'],
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -69,8 +69,10 @@ io.on('connection', (socket) => {
 global.io = io;
 
 app.use(cors({
-	origin: ['http://localhost:3001', 'http://localhost:3002'],
+	origin: ['http://localhost:3001', 'http://localhost:3002', 'http://localhost:3000'],
 	credentials: true,
+	methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+	allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 
