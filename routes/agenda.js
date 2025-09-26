@@ -74,18 +74,14 @@ router.post('/:meetingId', async (req, res) => {
 
       console.log(`📎 Found ${existingAttachments.length} existing attachments for ${existingItems.length} agenda items`);
 
-      // Group existing attachments by a combination of item title and type for better matching
-      const attachmentsByItemKey = {};
-      for (const attachment of existingAttachments) {
-        const item = existingItems.find(i => i.id === attachment.entityId);
-        if (item && item.type === 'infoItem') {
-          const itemKey = `${item.type}:${item.title}`;
-          if (!attachmentsByItemKey[itemKey]) {
-            attachmentsByItemKey[itemKey] = [];
-          }
-          attachmentsByItemKey[itemKey].push(attachment);
+      // Group existing attachments by their agenda item ID for reliable matching
+      const attachmentsByItemId = {};
+      existingAttachments.forEach(attachment => {
+        if (!attachmentsByItemId[attachment.entityId]) {
+          attachmentsByItemId[attachment.entityId] = [];
         }
-      }
+        attachmentsByItemId[attachment.entityId].push(attachment);
+      });
 
       // Delete existing agenda items (this will orphan the attachments temporarily)
       await tx.agendaItem.deleteMany({
@@ -200,18 +196,18 @@ router.post('/:meetingId', async (req, res) => {
         console.log(`✅ Created info item: frontend ID ${item.id} -> database ID ${createdItem.id}`);
 
         // Reassociate existing attachments with this new item if they exist
-        const itemTitle = item.title || `Info Item ${number}`;
-        if (attachmentsByItemTitle[itemTitle] && attachmentsByItemTitle[itemTitle].length > 0) {
-          console.log(`📎 Reassociating ${attachmentsByItemTitle[itemTitle].length} existing attachments for item "${itemTitle}"`);
+        // The frontend item.id is actually the old database agenda item ID when loading existing items
+        if (attachmentsByItemId[item.id] && attachmentsByItemId[item.id].length > 0) {
+          console.log(`📎 Reassociating ${attachmentsByItemId[item.id].length} existing attachments for frontend ID ${item.id} -> new database ID ${createdItem.id}`);
           
-          for (const existingAttachment of attachmentsByItemTitle[itemTitle]) {
+          for (const existingAttachment of attachmentsByItemId[item.id]) {
             await tx.attachment.update({
               where: { id: existingAttachment.id },
               data: { entityId: createdItem.id }
             });
           }
           
-          console.log(`✅ Reassociated attachments for item "${itemTitle}" with new ID ${createdItem.id}`);
+          console.log(`✅ Reassociated attachments for item "${item.title}" with new ID ${createdItem.id}`);
         }
       }
 
