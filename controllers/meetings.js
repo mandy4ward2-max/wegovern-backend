@@ -30,17 +30,6 @@ exports.getMeetings = async (req, res) => {
                 motion: true,
                 summary: true
               }
-            },
-            attachments: {
-              include: {
-                uploadedBy: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true
-                  }
-                }
-              }
             }
           }
         },
@@ -100,17 +89,6 @@ exports.getMeetingById = async (req, res) => {
                 id: true,
                 motion: true,
                 summary: true
-              }
-            },
-            attachments: {
-              include: {
-                uploadedBy: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true
-                  }
-                }
               }
             }
           }

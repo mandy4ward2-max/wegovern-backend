@@ -39,7 +39,6 @@ exports.createMotion = async (req, res) => {
       data: motionData,
       include: { 
         tasks: true, 
-        attachments: true,
         User: {
           select: {
             id: true,
@@ -55,6 +54,17 @@ exports.createMotion = async (req, res) => {
         }
       }
     });
+
+    // Fetch attachments for the new motion using the consolidated system
+    const motionAttachments = await prisma.attachment.findMany({
+      where: {
+        entityType: 'motion',
+        entityId: motionResult.id
+      }
+    });
+
+    // Add attachments to the result
+    motionResult.attachments = motionAttachments;
 
     // Create approval request for the motion
     await prisma.approval.create({
@@ -94,11 +104,22 @@ exports.getMotionById = async (req, res) => {
         },
         User: { select: { id: true, firstName: true, lastName: true, email: true, role: true } }, // Changed from submittedBy
         votes: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
-        attachments: true,
         Issue: { select: { id: true, title: true } }
       }
     });
+    
     if (!motion) return res.status(404).json({ error: 'Motion not found' });
+    
+    // Fetch attachments for the motion using the consolidated system
+    const motionAttachments = await prisma.attachment.findMany({
+      where: {
+        entityType: 'motion',
+        entityId: motion.id
+      }
+    });
+    
+    // Add attachments to the motion
+    motion.attachments = motionAttachments;
     // Add username to each task
     const tasksWithUser = (motion.tasks || []).map(task => ({
       ...task,
@@ -153,11 +174,35 @@ exports.getMotions = async (req, res) => {
               user: { select: { id: true, firstName: true, lastName: true, email: true } }
             }
           },
-          attachments: true,
           Issue: { select: { id: true, title: true } } // Include linked issue
         }
       });
       console.log('✅ Prisma query completed successfully');
+      
+      // Fetch attachments separately for all motions using the new consolidated system
+      const motionIds = motions.map(motion => motion.id);
+      const attachments = await prisma.attachment.findMany({
+        where: {
+          entityType: 'motion',
+          entityId: { in: motionIds }
+        }
+      });
+      
+      // Group attachments by motion ID
+      const attachmentsByMotionId = attachments.reduce((acc, attachment) => {
+        if (!acc[attachment.entityId]) {
+          acc[attachment.entityId] = [];
+        }
+        acc[attachment.entityId].push(attachment);
+        return acc;
+      }, {});
+      
+      // Add attachments to each motion
+      motions = motions.map(motion => ({
+        ...motion,
+        attachments: attachmentsByMotionId[motion.id] || []
+      }));
+      
     } catch (prismaError) {
       console.error('❌ Prisma query failed:', prismaError.message);
       return res.status(500).json({ error: 'Database query failed: ' + prismaError.message });

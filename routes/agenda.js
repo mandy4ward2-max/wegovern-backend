@@ -55,20 +55,46 @@ router.post('/:meetingId', async (req, res) => {
       return res.status(403).json({ error: 'Only owners and super users can save agendas' });
     }
 
-    // Delete existing agenda items for this meeting
-    await prisma.agendaItem.deleteMany({
-      where: { meetingId: parseInt(meetingId) }
-    });
-
     // Use a transaction to handle ID mapping properly
     const result = await prisma.$transaction(async (tx) => {
-      // Delete existing agenda items
+      // First, get existing agenda items and their attachments before deletion
+      const existingItems = await tx.agendaItem.findMany({
+        where: { meetingId: parseInt(meetingId) },
+        select: { id: true, title: true, type: true }
+      });
+
+      // Get existing attachments for agenda items
+      const existingItemIds = existingItems.map(item => item.id);
+      const existingAttachments = await tx.attachment.findMany({
+        where: {
+          entityType: 'agendaItem',
+          entityId: { in: existingItemIds }
+        }
+      });
+
+      console.log(`📎 Found ${existingAttachments.length} existing attachments for ${existingItems.length} agenda items`);
+
+      // Group existing attachments by a combination of item title and type for better matching
+      const attachmentsByItemKey = {};
+      for (const attachment of existingAttachments) {
+        const item = existingItems.find(i => i.id === attachment.entityId);
+        if (item && item.type === 'infoItem') {
+          const itemKey = `${item.type}:${item.title}`;
+          if (!attachmentsByItemKey[itemKey]) {
+            attachmentsByItemKey[itemKey] = [];
+          }
+          attachmentsByItemKey[itemKey].push(attachment);
+        }
+      }
+
+      // Delete existing agenda items (this will orphan the attachments temporarily)
       await tx.agendaItem.deleteMany({
         where: { meetingId: parseInt(meetingId) }
       });
 
-      // Create a map to track frontend ID -> database ID mappings for sections
+      // Create a map to track frontend ID -> database ID mappings for sections and info items
       const sectionIdMap = new Map();
+      const infoItemIdMap = new Map();
       const createdItems = [];
 
       // Helper function to get section number
@@ -159,15 +185,34 @@ router.post('/:meetingId', async (req, res) => {
           data: {
             meetingId: parseInt(meetingId),
             type: 'infoItem',
-            title: `Info Item ${number}`, // Required title field
-            agendaItem: item.content,
+            title: item.title || `Info Item ${number}`, // Use frontend title or fallback
+            agendaItem: item.content, // Keep for backward compatibility
+            description: item.description || null, // Rich text description
             sortOrder: sortOrder,
             number: number,
             parentSectionId: mappedParentId
           }
         });
         
+        // Map frontend ID to database ID for info items
+        infoItemIdMap.set(item.id, createdItem.id);
         createdItems.push(createdItem);
+        console.log(`✅ Created info item: frontend ID ${item.id} -> database ID ${createdItem.id}`);
+
+        // Reassociate existing attachments with this new item if they exist
+        const itemTitle = item.title || `Info Item ${number}`;
+        if (attachmentsByItemTitle[itemTitle] && attachmentsByItemTitle[itemTitle].length > 0) {
+          console.log(`📎 Reassociating ${attachmentsByItemTitle[itemTitle].length} existing attachments for item "${itemTitle}"`);
+          
+          for (const existingAttachment of attachmentsByItemTitle[itemTitle]) {
+            await tx.attachment.update({
+              where: { id: existingAttachment.id },
+              data: { entityId: createdItem.id }
+            });
+          }
+          
+          console.log(`✅ Reassociated attachments for item "${itemTitle}" with new ID ${createdItem.id}`);
+        }
       }
 
       // Process motion items (submitted motions)
@@ -268,6 +313,23 @@ router.post('/:meetingId', async (req, res) => {
         createdItems.push(createdItem);
       }
 
+      // Clean up any orphaned attachments that weren't reassociated
+      const orphanedAttachments = await tx.attachment.findMany({
+        where: {
+          entityType: 'agendaItem',
+          entityId: { in: existingItemIds }
+        }
+      });
+
+      if (orphanedAttachments.length > 0) {
+        console.log(`🧹 Cleaning up ${orphanedAttachments.length} orphaned attachments`);
+        await tx.attachment.deleteMany({
+          where: {
+            id: { in: orphanedAttachments.map(a => a.id) }
+          }
+        });
+      }
+
       console.log(`✅ Created ${createdItems.length} agenda items total`);
       return createdItems;
     });
@@ -275,7 +337,8 @@ router.post('/:meetingId', async (req, res) => {
     res.json({ 
       success: true, 
       message: 'Agenda saved successfully',
-      itemsCreated: result.length 
+      itemsCreated: result.length,
+      infoItemIdMapping: Object.fromEntries(infoItemIdMap)
     });
 
   } catch (error) {
@@ -316,7 +379,31 @@ router.get('/:meetingId', async (req, res) => {
       orderBy: { sortOrder: 'asc' }
     });
 
-    res.json(agendaItems);
+    // Get attachments for all agenda items in a separate query
+    const agendaItemIds = agendaItems.map(item => item.id);
+    const attachments = await prisma.attachment.findMany({
+      where: {
+        entityType: 'agendaItem',
+        entityId: { in: agendaItemIds }
+      }
+    });
+
+    // Group attachments by agenda item ID
+    const attachmentsByItemId = attachments.reduce((acc, attachment) => {
+      if (!acc[attachment.entityId]) {
+        acc[attachment.entityId] = [];
+      }
+      acc[attachment.entityId].push(attachment);
+      return acc;
+    }, {});
+
+    // Add attachments to each agenda item
+    const agendaItemsWithAttachments = agendaItems.map(item => ({
+      ...item,
+      attachments: attachmentsByItemId[item.id] || []
+    }));
+
+    res.json(agendaItemsWithAttachments);
 
   } catch (error) {
     console.error('Error fetching agenda:', error);

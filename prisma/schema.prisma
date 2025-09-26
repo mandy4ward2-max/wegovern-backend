@@ -48,7 +48,6 @@ model User {
   approvalsProcessed             Approval[]     @relation("ApprovalApprovedBy")
   meetingsCreated                Meeting[]      @relation("MeetingCreatedBy")
   meetingInvites                 MeetingInvitee[] @relation("MeetingInvitees")
-  agendaAttachmentsUploaded      AgendaAttachment[] @relation("AgendaAttachmentUploadedBy")
 }
 
 model Motion {
@@ -63,7 +62,6 @@ model Motion {
   orgId       Int
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  attachments Attachment[]
   comments    Comment[]
   Issue       Issue?       @relation(fields: [issueId], references: [id])
   org         Organization @relation(fields: [orgId], references: [id])
@@ -114,16 +112,19 @@ model Comment {
 }
 
 model Attachment {
-  id        Int      @id @default(autoincrement())
-  motionId  Int
-  userId    Int?
-  desc      String?
-  filename  String
-  url       String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  motion    Motion   @relation(fields: [motionId], references: [id])
-  User      User?    @relation(fields: [userId], references: [id])
+  id           Int       @id @default(autoincrement())
+  entityType   String    // "motion", "agendaItem", etc.
+  entityId     Int       // ID of the related entity (motionId, agendaItemId, etc.)
+  userId       Int?
+  desc         String?
+  filename     String
+  originalName String?   // For agenda attachments compatibility
+  url          String
+  mimeType     String?
+  size         Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  User         User?     @relation(fields: [userId], references: [id])
 }
 
 model Vote {
@@ -202,22 +203,6 @@ model AgendaItem {
   updatedAt       DateTime      @updatedAt
   meeting         Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   motion          Motion?       @relation(fields: [motionId], references: [id])
-  attachments     AgendaAttachment[]
-}
-
-model AgendaAttachment {
-  id              Int           @id @default(autoincrement())
-  agendaItemId    Int
-  filename        String
-  originalName    String
-  url             String
-  mimeType        String?
-  size            Int?
-  uploadedById    Int?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  agendaItem      AgendaItem    @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
-  uploadedBy      User?         @relation("AgendaAttachmentUploadedBy", fields: [uploadedById], references: [id])
 }
 
 model Approval {
