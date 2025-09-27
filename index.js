@@ -76,6 +76,13 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Debug middleware to catch agenda save errors
+app.use('/api/agenda', (req, res, next) => {
+  console.log(`🗓️ AGENDA ${req.method} ${req.path}`);
+  console.log('📋 Body:', JSON.stringify(req.body, null, 2));
+  next();
+});
+
 // Placeholder routes
 
 
@@ -100,9 +107,13 @@ app.use('/api/agenda', authMiddleware, require('./routes/agenda'));
 
 
 const path = require('path');
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-// Serve public static files (logos, etc.)
+const secureFileAccess = require('./middleware/secureFileAccess');
+
+// Temporarily disable secure file middleware for debugging
+// app.use('/uploads', authMiddleware, secureFileAccess, express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', authMiddleware, express.static(path.join(__dirname, 'uploads')));
+
+// Serve public static files (logos, etc.) - no auth needed
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 

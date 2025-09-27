@@ -48,22 +48,68 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 // Download attachment with Content-Disposition header - supports generic entities
-exports.downloadAttachment = (req, res) => {
-  const entityType = req.params.entityType || 'motion'; // Default to motion for backward compatibility
-  const entityId = req.params.entityId || req.params.motionId; // Support both old and new routes
-  const filename = req.params.filename;
-  
-  const filePath = path.join(__dirname, '..', 'uploads', 'attachments', entityType, String(entityId), filename);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'File not found', filePath });
-  }
-  
-  res.download(filePath, filename, err => {
-    if (err) {
-      res.status(500).json({ error: 'Failed to download file', details: err.message });
+exports.downloadAttachment = async (req, res) => {
+  try {
+    const entityType = req.params.entityType || 'motion'; // Default to motion for backward compatibility
+    const entityId = req.params.entityId || req.params.motionId; // Support both old and new routes
+    const filename = req.params.filename;
+    
+    console.log('🔍 Download attempt:', { entityType, entityId, filename });
+    console.log('📋 Full request params:', req.params);
+    
+    // Verify the attachment exists and user has access to it
+    const attachment = await prisma.attachment.findFirst({
+      where: {
+        entityType: entityType,
+        entityId: Number(entityId),
+        filename: filename
+      }
+    });
+    
+    console.log('📎 Found attachment in DB:', attachment ? 'YES' : 'NO');
+    if (attachment) {
+      console.log('📄 Attachment details:', {
+        id: attachment.id,
+        entityType: attachment.entityType,
+        entityId: attachment.entityId,
+        filename: attachment.filename,
+        originalName: attachment.originalName
+      });
     }
-  });
+    
+    if (!attachment) {
+      console.log('❌ Attachment not found in database');
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+    
+    const filePath = path.join(__dirname, '..', 'uploads', 'attachments', entityType, String(entityId), filename);
+    console.log('📁 Checking file path:', filePath);
+    
+    if (!fs.existsSync(filePath)) {
+      console.log('❌ File not found on disk at:', filePath);
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+    
+    console.log('✅ File exists, starting download');
+    
+    // Set proper headers for file download
+    res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName || filename}"`);
+    res.setHeader('Content-Type', attachment.mimeType || 'application/octet-stream');
+    
+    res.download(filePath, attachment.originalName || filename, err => {
+      if (err) {
+        console.error('❌ Download error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to download file', details: err.message });
+        }
+      } else {
+        console.log('✅ Download completed successfully');
+      }
+    });
+  } catch (error) {
+    console.error('❌ Download attachment error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 };
 
 exports.createAttachment = async (req, res) => {

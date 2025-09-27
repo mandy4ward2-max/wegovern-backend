@@ -5,7 +5,7 @@ const attachmentsController = require('../controllers/attachments');
 // Generic file upload endpoint (new structure)
 router.post('/upload/:entityType/:entityId', attachmentsController.upload.single('file'), attachmentsController.uploadAttachment);
 
-// Generic download endpoint (new structure)
+// Generic download endpoint (new structure) - keeping for backward compatibility
 router.get('/download/:entityType/:entityId/:filename', attachmentsController.downloadAttachment);
 
 // Legacy routes for backward compatibility (motion attachments)

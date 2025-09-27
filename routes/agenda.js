@@ -7,9 +7,12 @@ const prisma = new PrismaClient();
 
 // Save agenda for a meeting
 router.post('/:meetingId', async (req, res) => {
-  console.log('POST /:meetingId hit with params:', req.params);
-  console.log('Request body keys:', Object.keys(req.body || {}));
-  console.log('User from auth middleware:', req.user);
+  console.log('🚀 POST /:meetingId hit with params:', req.params);
+  console.log('🚀 Request body keys:', Object.keys(req.body || {}));
+  console.log('🚀 User from auth middleware:', req.user);
+  console.log('🚀 Request headers:', req.headers);
+  console.log('🚀 Request method:', req.method);
+  console.log('🚀 Request URL:', req.url);
   
   try {
     const { meetingId } = req.params;
@@ -195,10 +198,27 @@ router.post('/:meetingId', async (req, res) => {
         createdItems.push(createdItem);
         console.log(`✅ Created info item: frontend ID ${item.id} -> database ID ${createdItem.id}`);
 
-        // Reassociate existing attachments with this new item if they exist
-        // The frontend item.id is actually the old database agenda item ID when loading existing items
-        if (attachmentsByItemId[item.id] && attachmentsByItemId[item.id].length > 0) {
-          console.log(`📎 Reassociating ${attachmentsByItemId[item.id].length} existing attachments for frontend ID ${item.id} -> new database ID ${createdItem.id}`);
+        // Reassociate existing attachments with this new item
+        // First try to reassociate from the item's attachments array (preferred method)
+        if (item.attachments && item.attachments.length > 0) {
+          const existingAttachmentsInItem = item.attachments.filter(att => att.id && !att.file);
+          if (existingAttachmentsInItem.length > 0) {
+            console.log(`📎 Reassociating ${existingAttachmentsInItem.length} existing attachments from item data for frontend ID ${item.id} -> new database ID ${createdItem.id}`);
+            
+            for (const existingAttachment of existingAttachmentsInItem) {
+              await tx.attachment.update({
+                where: { id: existingAttachment.id },
+                data: { entityId: createdItem.id }
+              });
+            }
+            
+            console.log(`✅ Reassociated attachments from item data for "${item.title}" with new ID ${createdItem.id}`);
+          }
+        }
+        
+        // Fallback: reassociate from the pre-deletion lookup (legacy method)
+        else if (attachmentsByItemId[item.id] && attachmentsByItemId[item.id].length > 0) {
+          console.log(`📎 Reassociating ${attachmentsByItemId[item.id].length} existing attachments from lookup for frontend ID ${item.id} -> new database ID ${createdItem.id}`);
           
           for (const existingAttachment of attachmentsByItemId[item.id]) {
             await tx.attachment.update({
@@ -207,7 +227,7 @@ router.post('/:meetingId', async (req, res) => {
             });
           }
           
-          console.log(`✅ Reassociated attachments for item "${item.title}" with new ID ${createdItem.id}`);
+          console.log(`✅ Reassociated attachments from lookup for "${item.title}" with new ID ${createdItem.id}`);
         }
       }
 
@@ -327,14 +347,17 @@ router.post('/:meetingId', async (req, res) => {
       }
 
       console.log(`✅ Created ${createdItems.length} agenda items total`);
-      return createdItems;
+      return {
+        createdItems,
+        infoItemIdMap
+      };
     });
 
     res.json({ 
       success: true, 
       message: 'Agenda saved successfully',
-      itemsCreated: result.length,
-      infoItemIdMapping: Object.fromEntries(infoItemIdMap)
+      itemsCreated: result.createdItems.length,
+      infoItemIdMapping: Object.fromEntries(result.infoItemIdMap)
     });
 
   } catch (error) {

@@ -112,6 +112,44 @@ exports.getMeetingById = async (req, res) => {
       return res.status(404).json({ error: 'Meeting not found' });
     }
 
+    // Manually fetch attachments for each agenda item
+    if (meeting.agendaItems && meeting.agendaItems.length > 0) {
+      const agendaItemIds = meeting.agendaItems.map(item => item.id);
+      
+      const attachments = await prisma.attachment.findMany({
+        where: {
+          entityType: 'agendaItem',
+          entityId: { in: agendaItemIds }
+        },
+        select: {
+          id: true,
+          entityId: true,
+          filename: true,
+          originalName: true,
+          url: true,
+          desc: true,
+          mimeType: true,
+          size: true,
+          createdAt: true
+        }
+      });
+
+      // Group attachments by agenda item ID
+      const attachmentsByItemId = {};
+      attachments.forEach(attachment => {
+        if (!attachmentsByItemId[attachment.entityId]) {
+          attachmentsByItemId[attachment.entityId] = [];
+        }
+        attachmentsByItemId[attachment.entityId].push(attachment);
+      });
+
+      // Add attachments to each agenda item
+      meeting.agendaItems = meeting.agendaItems.map(item => ({
+        ...item,
+        attachments: attachmentsByItemId[item.id] || []
+      }));
+    }
+
     console.log('✅ getMeetingById: Found meeting:', meeting.id);
     console.log('📅 Meeting datetime values:', {
       startDateTime: meeting.startDateTime,
